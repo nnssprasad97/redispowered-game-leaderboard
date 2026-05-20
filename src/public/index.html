@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Redis Trivia Arena - Live Leaderboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+  <div class="glass-bg"></div>
+  
+  <header>
+    <div class="header-container">
+      <div class="logo">
+        <i class="fa-solid fa-bolt pulse-icon"></i>
+        <h1>Redis <span>Trivia Arena</span></h1>
+      </div>
+      <div class="connection-status">
+        <div id="api-status" class="status-badge offline">
+          <span class="dot"></span> API: Checking
+        </div>
+        <div id="sse-status" class="status-badge offline">
+          <span class="dot"></span> SSE Stream: Disconnected
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="main-container">
+    
+    <!-- Left Column: Forms and Controls -->
+    <section class="left-panel">
+      <!-- Tab Controls -->
+      <div class="tab-controls">
+        <button class="tab-btn active" onclick="switchTab('player-tab')"><i class="fa-solid fa-gamepad"></i> Player Console</button>
+        <button class="tab-btn" onclick="switchTab('admin-tab')"><i class="fa-solid fa-shield-halved"></i> Admin Console</button>
+      </div>
+
+      <!-- Player Console -->
+      <div id="player-tab" class="tab-content active-content">
+        <!-- Session Card -->
+        <div class="card glass-card">
+          <div class="card-header">
+            <h3><i class="fa-solid fa-user-astronaut"></i> Player Session</h3>
+            <span id="session-badge" class="badge expired">No Active Session</span>
+          </div>
+          
+          <div id="session-login-form">
+            <p class="helper-text">Create a session to join the game. Old sessions will be invalidated atomically.</p>
+            <div class="form-group">
+              <label for="userId">Username / User ID</label>
+              <div class="input-wrapper">
+                <i class="fa-solid fa-user"></i>
+                <input type="text" id="userId" placeholder="Enter username (e.g. player-omega)" value="player-omega">
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="deviceType">Device</label>
+                <select id="deviceType">
+                  <option value="desktop">Desktop</option>
+                  <option value="mobile">Mobile</option>
+                  <option value="tablet">Tablet</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="ipAddress">IP Address</label>
+                <input type="text" id="ipAddress" value="127.0.0.1">
+              </div>
+            </div>
+            <button class="btn btn-primary" onclick="handleCreateSession()"><i class="fa-solid fa-right-to-bracket"></i> Create Session</button>
+          </div>
+
+          <div id="session-active-info" class="hidden">
+            <div class="info-grid">
+              <div><strong>User:</strong> <span id="display-userId"></span></div>
+              <div><strong>Session ID:</strong> <span id="display-sessionId" class="code-span"></span></div>
+              <div><strong>IP:</strong> <span id="display-ip"></span></div>
+              <div><strong>Device:</strong> <span id="display-device"></span></div>
+            </div>
+            <button class="btn btn-outline" onclick="logoutSession()"><i class="fa-solid fa-right-from-bracket"></i> Invalidate Session</button>
+          </div>
+        </div>
+
+        <!-- Trivia Submission Card -->
+        <div class="card glass-card">
+          <div class="card-header">
+            <h3><i class="fa-solid fa-circle-question"></i> Quiz Arena</h3>
+            <span id="quiz-badge" class="badge">Round Not Started</span>
+          </div>
+          
+          <div class="game-setup-row">
+            <button class="btn btn-secondary btn-sm" onclick="seedTestRound()"><i class="fa-solid fa-seedling"></i> Seed Active Round (60s)</button>
+          </div>
+          
+          <form id="quiz-form" onsubmit="handleQuizSubmit(event)">
+            <div class="form-row">
+              <div class="form-group">
+                <label for="gameId">Game ID</label>
+                <input type="text" id="gameId" value="game-101">
+              </div>
+              <div class="form-group">
+                <label for="roundId">Round ID</label>
+                <input type="text" id="roundId" value="round-1">
+              </div>
+            </div>
+            
+            <div class="form-group">
+              <label for="quizAnswer">Your Answer</label>
+              <div class="input-wrapper">
+                <i class="fa-solid fa-key"></i>
+                <input type="text" id="quizAnswer" placeholder="Type your answer here..." required disabled>
+              </div>
+              <small class="hint-text">Correct answer is case-insensitive. Seeding creates round with correct answer: "Redis".</small>
+            </div>
+            
+            <button type="submit" id="quiz-submit-btn" class="btn btn-success" disabled><i class="fa-solid fa-paper-plane"></i> Submit Answer</button>
+          </form>
+          
+          <div id="quiz-result-banner" class="result-banner hidden"></div>
+        </div>
+
+        <!-- Direct Score Update (Optional) -->
+        <div class="card glass-card">
+          <div class="card-header">
+            <h3><i class="fa-solid fa-square-plus"></i> Manual Score Increment</h3>
+          </div>
+          <p class="helper-text">Directly update points in the global leaderboard (uses ZINCRBY).</p>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="scorePlayerId">Player ID</label>
+              <input type="text" id="scorePlayerId" value="player-omega">
+            </div>
+            <div class="form-group">
+              <label for="scorePoints">Points</label>
+              <input type="number" id="scorePoints" value="10">
+            </div>
+          </div>
+          <button class="btn btn-secondary" onclick="handleManualScoreUpdate()"><i class="fa-solid fa-plus"></i> Add Points</button>
+        </div>
+      </div>
+
+      <!-- Admin Console -->
+      <div id="admin-tab" class="tab-content">
+        <div class="card glass-card">
+          <div class="card-header">
+            <h3><i class="fa-solid fa-lock-open"></i> Session Invalidation Console</h3>
+          </div>
+          <p class="helper-text">Retrieve active sessions for a user ID and invalidate them on command.</p>
+          <div class="form-group">
+            <label for="adminUserId">Query User ID</label>
+            <div class="input-wrapper">
+              <i class="fa-solid fa-magnifying-glass"></i>
+              <input type="text" id="adminUserId" placeholder="Enter userId (e.g. player-omega)" value="player-omega">
+            </div>
+          </div>
+          <button class="btn btn-primary" onclick="queryAdminSessions()"><i class="fa-solid fa-list"></i> Search Sessions</button>
+
+          <div id="admin-sessions-container" class="admin-session-list hidden">
+            <h4>Active Sessions (<span id="admin-session-count">0</span>)</h4>
+            <div class="table-container">
+              <table class="session-table">
+                <thead>
+                  <tr>
+                    <th>Session ID</th>
+                    <th>Device</th>
+                    <th>IP</th>
+                    <th>Last Active</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody id="admin-sessions-body">
+                  <!-- Injected sessions -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Center/Right Column: Live Leaderboard and SSE event stream -->
+    <section class="right-panel">
+      <!-- Global Leaderboard -->
+      <div class="card glass-card leaderboard-card">
+        <div class="card-header">
+          <h3><i class="fa-solid fa-trophy yellow-icon animate-bounce"></i> Global Leaderboard (Top 10)</h3>
+          <button class="btn btn-outline btn-sm" onclick="fetchLeaderboard()"><i class="fa-solid fa-rotate"></i> Refresh</button>
+        </div>
+        <div class="table-container">
+          <table class="leaderboard-table">
+            <thead>
+              <tr>
+                <th>Rank</th>
+                <th>Player ID</th>
+                <th>Score</th>
+              </tr>
+            </thead>
+            <tbody id="leaderboard-body">
+              <tr>
+                <td colspan="3" class="loading">Loading leaderboard...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Player Context Query -->
+      <div class="card glass-card context-card">
+        <div class="card-header">
+          <h3><i class="fa-solid fa-address-card"></i> Player Rank Inspect</h3>
+        </div>
+        <div class="form-group inline-group">
+          <input type="text" id="inspectPlayerId" placeholder="Player ID (e.g. player-omega)" value="player-omega">
+          <button class="btn btn-secondary" onclick="inspectPlayerRank()"><i class="fa-solid fa-magnifying-glass"></i> Inspect</button>
+        </div>
+        <div id="inspect-result" class="inspect-result hidden">
+          <div class="stats-ribbon">
+            <div class="stat-box">
+              <span class="stat-label">Rank</span>
+              <span class="stat-value" id="inspect-rank">-</span>
+            </div>
+            <div class="stat-box">
+              <span class="stat-label">Score</span>
+              <span class="stat-value" id="inspect-score">-</span>
+            </div>
+            <div class="stat-box">
+              <span class="stat-label">Percentile</span>
+              <span class="stat-value" id="inspect-percentile">-</span>
+            </div>
+          </div>
+          <div class="nearby-players">
+            <h5><i class="fa-solid fa-users"></i> Surrounding Players</h5>
+            <div class="nearby-grid">
+              <div class="nearby-column">
+                <span class="nearby-header">Above</span>
+                <ul id="nearby-above" class="nearby-list"></ul>
+              </div>
+              <div class="nearby-column">
+                <span class="nearby-header">Below</span>
+                <ul id="nearby-below" class="nearby-list"></ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Event Log Ticker -->
+      <div class="card glass-card ticker-card">
+        <div class="card-header">
+          <h3><i class="fa-solid fa-clock-rotate-left"></i> Live Game Events Feed</h3>
+          <span class="badge badge-success"><span class="dot blink-dot"></span> Live</span>
+        </div>
+        <div id="ticker-feed" class="ticker-feed">
+          <div class="ticker-placeholder">Waiting for real-time events... Submit a score or answer to see them live!</div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <p>Powered by Redis Hashes, Sets, Sorted Sets, Pub/Sub, and Lua Scripts. Built in Node.js &amp; CSS Grid.</p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
