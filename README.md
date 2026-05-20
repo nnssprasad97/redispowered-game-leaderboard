@@ -45,6 +45,8 @@ If you prefer running directly on your host machine:
 
 ## 🏗️ Architecture & Component Breakdown
 
+![System Architecture](architecture.png)
+
 ```
                     +------------------------------------+
                     |         Browser Client             |
