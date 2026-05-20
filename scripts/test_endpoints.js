@@ -1,4 +1,13 @@
 import { createClient } from 'redis';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const submissionPath = path.join(__dirname, '..', 'submission.json');
+const submission = JSON.parse(fs.readFileSync(submissionPath, 'utf-8'));
+const testUserId = submission.testUserId || 'test-user-for-eval-12345';
 
 const API_PORT = process.env.API_PORT || 3000;
 const API_URL = `http://localhost:${API_PORT}`;
@@ -10,8 +19,10 @@ async function runTests() {
   const redis = createClient({ url: REDIS_URL });
   await redis.connect();
   
+  const user = testUserId;
+
   // Clear any existing keys for our specific test namespace to keep runs clean
-  await redis.del('user_sessions:test-user-123');
+  await redis.del(`user_sessions:${user}`);
   await redis.del('leaderboard:global');
   await redis.del('submissions:game-test:round-test');
   await redis.del('game_round:game-test:round-test');
@@ -38,8 +49,7 @@ async function runTests() {
     assert(healthData.status === 'OK' && healthData.redis === 'CONNECTED', 'Health check reports OK and Redis Connected');
 
     // 2. Session Creation (POST /api/sessions)
-    console.log('\nTesting Session Creation (POST /api/sessions)...');
-    const user = 'test-user-123';
+    console.log(`\nTesting Session Creation (POST /api/sessions) for ${user}...`);
     const s1Res = await fetch(`${API_URL}/api/sessions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -239,8 +249,8 @@ async function runTests() {
 
     // 7. Admin Endpoint tests (GET /api/admin/sessions/user/:userId & DELETE /api/admin/sessions/:sessionId)
     console.log('\nTesting Admin Sessions Management...');
-    // Fetch active session for user test-user-123 (should be session s2Id)
-    const adminGetRes = await fetch(`${API_URL}/api/admin/sessions/user/test-user-123`);
+    // Fetch active session for user (should be session s2Id)
+    const adminGetRes = await fetch(`${API_URL}/api/admin/sessions/user/${user}`);
     assert(adminGetRes.status === 200, 'Admin get user sessions returned 200 OK');
     const adminGetData = await adminGetRes.json();
     assert(adminGetData.length === 1 && adminGetData[0].sessionId === s2Id, 'Found correct session in user active sessions array');
@@ -254,7 +264,7 @@ async function runTests() {
     // Verify session and set membership is deleted
     const sessionExists = await redis.exists(`session:${s2Id}`);
     assert(sessionExists === 0, 'Session key has been deleted');
-    const indexSize = await redis.sCard(`user_sessions:test-user-123`);
+    const indexSize = await redis.sCard(`user_sessions:${user}`);
     assert(indexSize === 0, 'Session ID removed from user sessions set index');
 
   } catch (error) {

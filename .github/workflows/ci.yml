@@ -1,0 +1,81 @@
+name: CI – Redis Leaderboard
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Build & Integration Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. Checkout ────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Node.js setup ───────────────────────────────────────────────────
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      # ── 3. Install dependencies ────────────────────────────────────────────
+      - name: Install dependencies
+        run: npm ci
+
+      # ── 4. Build + start the full stack ───────────────────────────────────
+      - name: Build and start Docker Compose stack
+        run: docker compose up --build -d
+
+      # ── 5. Wait for the API to become healthy ──────────────────────────────
+      - name: Wait for API to be healthy
+        run: |
+          echo "Waiting for API server to become ready..."
+          for i in $(seq 1 30); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/health || true)
+            if [ "$STATUS" = "200" ]; then
+              echo "API is healthy after ${i}s"
+              exit 0
+            fi
+            echo "  attempt $i – got HTTP $STATUS, retrying in 2s..."
+            sleep 2
+          done
+          echo "API did not become healthy in time"
+          docker compose logs api
+          exit 1
+
+      # ── 6. Smoke-test /health ──────────────────────────────────────────────
+      - name: Smoke-test /health endpoint
+        run: |
+          RESPONSE=$(curl -sf http://localhost:3000/health)
+          echo "Health response: $RESPONSE"
+          echo "$RESPONSE" | grep -q '"status":"OK"'
+          echo "$RESPONSE" | grep -q '"redis":"CONNECTED"'
+
+      # ── 7. Run integration test suite ─────────────────────────────────────
+      - name: Run integration tests (44 assertions)
+        env:
+          REDIS_URL: redis://localhost:6379
+          API_PORT: 3000
+        run: node scripts/test_endpoints.js
+
+      # ── 8. Run concurrency & atomicity proof ──────────────────────────────
+      - name: Run concurrency & atomicity tests
+        env:
+          REDIS_URL: redis://localhost:6379
+          API_PORT: 3000
+        run: node scripts/test_concurrency.js
+
+      # ── 9. Print container logs on failure ────────────────────────────────
+      - name: Dump container logs (on failure)
+        if: failure()
+        run: docker compose logs
+
+      # ── 10. Tear down ──────────────────────────────────────────────────────
+      - name: Tear down Docker Compose stack
+        if: always()
+        run: docker compose down -v

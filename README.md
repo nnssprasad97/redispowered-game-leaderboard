@@ -1,5 +1,7 @@
 # Redis-Powered Trivia Game & Real-Time Leaderboard
 
+[![CI – Redis Leaderboard](https://github.com/nnssprasad97/redispowered-game-leaderboard/actions/workflows/ci.yml/badge.svg)](https://github.com/nnssprasad97/redispowered-game-leaderboard/actions/workflows/ci.yml)
+
 Welcome to the **Redis Trivia Arena**, a high-performance, real-time quiz game backend and live dashboard powered by advanced Redis data structures and atomic operations.
 
 This application demonstrates how to use Redis beyond simple caching—leveraging **Hashes** for sliding sessions, **Sets** for indexing, **Sorted Sets** for instant O(log N) leaderboard indexing, **Pub/Sub** for message propagation, and **Lua Scripting** for transaction-free atomic operations.
